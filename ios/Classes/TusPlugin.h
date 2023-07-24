@@ -3,5 +3,5 @@
 #import <Flutter/Flutter.h>
 #import <TUSKit/TUSKit.h>
 
-@interface TusPlugin : NSObject<FlutterPlugin>
+@interface TusPlugin : NSObject <FlutterPlugin>
 @end

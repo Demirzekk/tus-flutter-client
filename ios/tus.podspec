@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'tus'
-  s.version          = '0.0.1'
+  s.version          = '0.0.5'
   s.summary          = 'Flutter Client for tus.io'
   s.description      = <<-DESC
 Tus Flutter Client
@@ -17,7 +17,8 @@ Tus Flutter Client
   s.public_header_files = 'Classes/**/*.h'
   s.dependency 'Flutter'
   s.dependency 'TUSKit'
-  s.platform = :ios, '8.0'
+  s.platform = :ios, '10.0'
+  pod 'TUSKit'
 
   # Flutter.framework does not contain a i386 slice. Only x86_64 simulators are supported.
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'VALID_ARCHS[sdk=iphonesimulator*]' => 'x86_64' }
