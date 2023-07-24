@@ -113,7 +113,7 @@ class _MyAppState extends State<MyApp> {
             Center(
               child: Text('Running on: $_platformVersion\n'),
             ),
-            RaisedButton(
+            ElevatedButton(
               child: Text("Choose a photo to upload!"),
               onPressed: () async {
                 await getImage();

@@ -18,22 +18,22 @@ class Tus {
       const MethodChannel('io.tus.flutter_service');
 
   // The endpoint url.
-  final String endpointUrl;
-  OnProgressCallback onProgress;
-  OnCompleteCallback onComplete;
-  OnErrorCallback onError;
+  final String? endpointUrl;
+  OnProgressCallback? onProgress;
+  OnCompleteCallback? onComplete;
+  OnErrorCallback? onError;
 
   // Flag to ensure that the tus client is initialized.
   bool isInitialized = false;
 
   // Headers for client-wide uploads.
-  Map<String, String> headers = Map<String, String>();
+  Map<String, String>? headers = Map<String, String>();
 
   // Number of retries before giving up. Defaults to infinite retries.
   int retry = -1;
 
   // [iOS-only] Allows cellular access for uploads.
-  bool allowCellularAccess = true;
+  bool? allowCellularAccess = true;
 
   Tus(this.endpointUrl,
       {this.onProgress,
@@ -46,7 +46,7 @@ class Tus {
   }
 
   // Handles the method calls from the native side.
-  Future<void> handler(MethodCall call) {
+  Future handler(MethodCall call) {
     // Ensure that the endpointUrl provided from the MethodChannel is the same
     // as the flutter client.
     switch (call.method) {
@@ -55,7 +55,7 @@ class Tus {
       case "failureBlock":
         if (call.arguments["endpointUrl"] != endpointUrl) {
           // This method call is not meant for this client.
-          return null;
+          return Future.value();
         }
         break;
     }
@@ -66,8 +66,8 @@ class Tus {
       var bytesTotal = call.arguments["bytesTotal"];
       if (onProgress != null) {
         double progress = bytesWritten / bytesTotal;
-        onProgress(int.tryParse(bytesWritten), int.tryParse(bytesTotal),
-            progress, this);
+        onProgress!(int.tryParse(bytesWritten) ?? 0,
+            int.tryParse(bytesTotal) ?? 0, progress, this);
       }
     }
 
@@ -75,7 +75,7 @@ class Tus {
     if (call.method == "resultBlock") {
       var resultUrl = call.arguments["resultUrl"];
       if (onComplete != null) {
-        onComplete(resultUrl, this);
+        onComplete!(resultUrl, this);
       }
     }
 
@@ -83,9 +83,10 @@ class Tus {
     if (call.method == "failureBlock") {
       var error = call.arguments["error"] ?? "";
       if (onError != null) {
-        onError(error, this);
+        onError!(error, this);
       }
     }
+    return Future.value();
   }
 
   static Future<String> get platformVersion async {
@@ -97,7 +98,7 @@ class Tus {
   Future<Map> initializeWithEndpoint() async {
     var response =
         await _channel.invokeMethod("initWithEndpoint", <String, String>{
-      "endpointUrl": endpointUrl,
+      "endpointUrl": endpointUrl ?? "",
       "allowCellularAccess": allowCellularAccess.toString(),
     });
 
@@ -110,8 +111,8 @@ class Tus {
   // Optionally, you can provide [metadata] to enrich the file upload.
   // Note that filename is provided in the [metadata] upon upload.
   Future<dynamic> createUploadFromFile(String fileToUpload,
-      {Map<String, String> metadata}) async {
-    if(!isInitialized) {
+      {Map<String, String>? metadata}) async {
+    if (!isInitialized) {
       await initializeWithEndpoint();
     }
 
@@ -131,8 +132,8 @@ class Tus {
         "metadata": metadata,
       });
 
-      if (result.containsKey("error")) {
-        throw Exception("${result["error"]} { ${result["reason"]}");
+      if (result?.containsKey("error") ?? false) {
+        throw Exception("${result?["error"]} { ${result?["reason"]}");
       }
 
       return result;
