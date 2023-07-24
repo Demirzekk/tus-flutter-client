@@ -46,7 +46,7 @@ class Tus {
   }
 
   // Handles the method calls from the native side.
-  Future handler(MethodCall call) {
+  Future<void> handler(MethodCall call) {
     // Ensure that the endpointUrl provided from the MethodChannel is the same
     // as the flutter client.
     switch (call.method) {
@@ -62,12 +62,11 @@ class Tus {
 
     // Trigger the onProgress callback if the callback is provided.
     if (call.method == "progressBlock") {
-      var bytesWritten = call.arguments["bytesWritten"];
-      var bytesTotal = call.arguments["bytesTotal"];
+      var bytesWritten = int.tryParse(call.arguments["bytesWritten"]);
+      var bytesTotal = int.tryParse(call.arguments["bytesTotal"]);
       if (onProgress != null) {
-        double progress = bytesWritten / bytesTotal;
-        onProgress!(int.tryParse(bytesWritten) ?? 0,
-            int.tryParse(bytesTotal) ?? 0, progress, this);
+        double progress = (bytesWritten ?? 0) / (bytesTotal ?? 0);
+        onProgress!(bytesWritten ?? 0, bytesTotal ?? 0, progress, this);
       }
     }
 
