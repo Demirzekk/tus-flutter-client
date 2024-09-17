@@ -32,7 +32,7 @@ android {
         disable 'InvalidPackage'
     }
     dependencies {
-        implementation 'io.tus.java.client:tus-java-client:0.4.2'
+        implementation 'io.tus.java.client:tus-java-client:0.4.4'
         implementation 'io.tus.android.client:tus-android-client:0.1.11'
     }
 }
