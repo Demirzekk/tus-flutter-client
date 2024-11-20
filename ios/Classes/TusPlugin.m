@@ -43,109 +43,110 @@ static NSString* const FILE_NAME = @"tuskit_example";
     NSDictionary *arguments = [call arguments];
     NSDictionary *options = [arguments[@"options"] isKindOfClass:[NSDictionary class]] ? arguments[@"options"] : nil;
 
-    if ([@"getPlatformVersion" isEqualToString:call.method]) {
-        result([@"iOS " stringByAppendingString:[[UIDevice currentDevice] systemVersion]]);
-    }
-    else if([@"initWithEndpoint" isEqualToString:call.method]) {
+    if ([@"initWithEndpoint" isEqualToString:call.method]) {
         NSString *endpointUrl = arguments[@"endpointUrl"];
-        NSURLSessionConfiguration *localSessionConfiguration = [self.sessionConfiguration copy];
-        localSessionConfiguration.allowsCellularAccess = [options[@"allowsCellularAccess"] isEqualToString:@"true"];
-
-        [self.tusSessions setValue:[[TUSSession alloc] initWithEndpoint:[[NSURL alloc] initWithString:endpointUrl] dataStore:self.tusUploadStore sessionConfiguration:localSessionConfiguration] forKey:endpointUrl];
-        for (TUSResumableUpload *upload in [[self.tusSessions valueForKey:endpointUrl] restoreAllUploads]) {
-            upload.progressBlock = ^(int64_t bytesWritten, int64_t bytesTotal) {
-                NSMutableDictionary *a = [[NSMutableDictionary alloc] init];
-                [a setValue:[NSString stringWithFormat:@"%lld", bytesWritten] forKey:@"bytesWritten"];
-                [a setValue:[NSString stringWithFormat:@"%lld", bytesTotal] forKey:@"bytesTotal"];
-                [a setValue: endpointUrl forKey:@"endpointUrl"];
-                [self.channel invokeMethod:@"progressBlock" arguments:a];
-            };
-            upload.resultBlock = ^(NSURL *fileUrl) {
-                NSMutableDictionary *a = [[NSMutableDictionary alloc]init];
-                [a setValue:endpointUrl forKey:@"endpointUrl"];
-                [a setValue:[NSString stringWithFormat:@"%@", fileUrl.absoluteURL.path] forKey:@"resultUrl"];
-                [self.channel invokeMethod:@"resultBlock" arguments:a];
-            };
-            upload.failureBlock = ^(NSError * _Nonnull error) {
-                NSMutableDictionary *a = [[NSMutableDictionary alloc]init];
-                [a setValue:[NSString stringWithFormat:@"%@", error] forKey:@"error"];
-                [a setValue:endpointUrl forKey:@"endpointUrl"];
-                [self.channel invokeMethod:@"failureBlock" arguments:a];
-            };
-        }
-
-        [[self.tusSessions valueForKey:endpointUrl] resumeAll];
-
-        NSMutableDictionary *inResult = [[NSMutableDictionary alloc]init];
-        [inResult setValue:endpointUrl forKey:@"endpointUrl"];
-        result(inResult);
-    } else if ([@"createUploadFromFile" isEqualToString:call.method]) {
-        NSString *endpointUrl = arguments[@"endpointUrl"];
-        TUSSession *localTusSession = [self.tusSessions objectForKey:endpointUrl];
-        if (localTusSession == nil ) {
-            NSMutableDictionary *inResult = [[NSMutableDictionary alloc]init];
-            [inResult setValue:@"invalid endpointUrl provided" forKey:@"error"];
-            result(inResult);
+        if (![endpointUrl isKindOfClass:[NSString class]]) {
+            result([FlutterError errorWithCode:InvalidParameters
+                                       message:@"endpointUrl must be a string"
+                                       details:nil]);
             return;
         }
 
+        NSURL *endpointNSURL = [NSURL URLWithString:endpointUrl];
+        if (!endpointNSURL) {
+            result([FlutterError errorWithCode:InvalidParameters
+                                       message:@"Invalid URL format"
+                                       details:nil]);
+            return;
+        }
+
+        NSURLSessionConfiguration *localSessionConfiguration = [self.sessionConfiguration copy];
+        localSessionConfiguration.allowsCellularAccess = [options[@"allowsCellularAccess"] boolValue];
+
+        TUSSession *session = [[TUSSession alloc] initWithEndpoint:endpointNSURL
+                                                          dataStore:self.tusUploadStore
+                                             sessionConfiguration:localSessionConfiguration];
+        [self.tusSessions setValue:session forKey:endpointUrl];
+
+        for (TUSResumableUpload *upload in [session restoreAllUploads]) {
+            [self setupUploadCallbacks:upload endpointUrl:endpointUrl];
+        }
+
+        [session resumeAll];
+        result(@{@"endpointUrl": endpointUrl});
+    } else if ([@"createUploadFromFile" isEqualToString:call.method]) {
+        NSString *endpointUrl = arguments[@"endpointUrl"];
         NSString *fileUploadUrl = arguments[@"fileUploadUrl"];
-        if(fileUploadUrl == nil) {
-            NSMutableDictionary *inResult = [[NSMutableDictionary alloc]init];
-            [inResult setValue:@"invalid fileUploadUrl provided" forKey:@"error"];
-            result(inResult);
+
+        if (![endpointUrl isKindOfClass:[NSString class]] || ![fileUploadUrl isKindOfClass:[NSString class]]) {
+            result([FlutterError errorWithCode:InvalidParameters
+                                       message:@"endpointUrl and fileUploadUrl must be strings"
+                                       details:nil]);
+            return;
+        }
+
+        NSURL *uploadFromFile = [NSURL fileURLWithPath:fileUploadUrl];
+        if (![[NSFileManager defaultManager] fileExistsAtPath:uploadFromFile.path]) {
+            result([FlutterError errorWithCode:InvalidParameters
+                                       message:@"File does not exist"
+                                       details:nil]);
+            return;
+        }
+
+        TUSSession *localTusSession = [self.tusSessions objectForKey:endpointUrl];
+        if (!localTusSession) {
+            result([FlutterError errorWithCode:InvalidParameters
+                                       message:@"Invalid endpointUrl provided"
+                                       details:nil]);
             return;
         }
 
         NSDictionary *headers = [arguments[@"headers"] isKindOfClass:[NSDictionary class]] ? arguments[@"headers"] : @{};
-        NSDictionary *metadata = [arguments[@"metadata"] isKindOfClass:[NSDictionary class]] ? arguments[@"metadata"]  : @{};
-        NSURL *uploadUrl = [arguments[@"uploadUrl"] isKindOfClass:[NSString class]] ? [[NSURL alloc]initWithString:arguments[@"uploadUrl"]] : nil;
-
-        int retryCount = arguments[@"retry"] == nil ? -1 : [arguments[@"retry"] intValue];
+        NSDictionary *metadata = [arguments[@"metadata"] isKindOfClass:[NSDictionary class]] ? arguments[@"metadata"] : @{};
 
         @try {
-            NSURL *uploadFromFile = [NSURL fileURLWithPath:fileUploadUrl];
-            TUSResumableUpload *upload = [localTusSession createUploadFromFile:uploadFromFile retry:retryCount headers:headers metadata:metadata ];
+            TUSResumableUpload *upload = [localTusSession createUploadFromFile:uploadFromFile
+                                                                          retry:3
+                                                                        headers:headers
+                                                                       metadata:metadata];
 
-            upload.progressBlock = ^(int64_t bytesWritten, int64_t bytesTotal) {
-                NSMutableDictionary *a = [[NSMutableDictionary alloc] init];
-                [a setValue:[NSString stringWithFormat:@"%lld", bytesWritten] forKey:@"bytesWritten"];
-                [a setValue:[NSString stringWithFormat:@"%lld", bytesTotal] forKey:@"bytesTotal"];
-                [a setValue: endpointUrl forKey:@"endpointUrl"];
-                [self.channel invokeMethod:@"progressBlock" arguments:a];
-            };
-            upload.resultBlock = ^(NSURL *fileUrl) {
-                NSMutableDictionary *a = [[NSMutableDictionary alloc]init];
-                [a setValue:endpointUrl forKey:@"endpointUrl"];
-                [a setValue:[NSString stringWithFormat:@"%@", fileUrl.absoluteURL.path] forKey:@"resultUrl"];
-                [self.channel invokeMethod:@"resultBlock" arguments:a];
-            };
-            upload.failureBlock = ^(NSError * _Nonnull error) {
-                NSMutableDictionary *a = [[NSMutableDictionary alloc]init];
-                [a setValue:[NSString stringWithFormat:@"%@", error] forKey:@"error"];
-                [a setValue:endpointUrl forKey:@"endpointUrl"];
-                [self.channel invokeMethod:@"failureBlock" arguments:a];
-            };
-
+            [self setupUploadCallbacks:upload endpointUrl:endpointUrl];
             [upload uploadFile];
-
-            NSMutableDictionary *inResult = [[NSMutableDictionary alloc]init];
-            [inResult setValue:@"true" forKey:@"inProgress"];
-            result(inResult);
+            result(@{@"inProgress": @YES});
+        } @catch (NSException *exception) {
+            result([FlutterError errorWithCode:exception.name
+                                       message:exception.reason
+                                       details:exception.callStackSymbols]);
         }
-        @catch (NSException *exception){
-            NSMutableDictionary *inResult = [[NSMutableDictionary alloc]init];
-            [inResult setValue:exception.name forKey:@"error"];
-            [inResult setValue:exception.reason forKey:@"reason"];
-            [inResult setValue:exception.callStackSymbols forKey:@"stack"];
-            result(inResult);
-        }
-
-
-    }else {
-      result(FlutterMethodNotImplemented);
+    } else {
+        result(FlutterMethodNotImplemented);
     }
 }
+
+- (void)setupUploadCallbacks:(TUSResumableUpload *)upload endpointUrl:(NSString *)endpointUrl {
+    upload.progressBlock = ^(int64_t bytesWritten, int64_t bytesTotal) {
+        [self.channel invokeMethod:@"progressBlock" arguments:@{
+            @"bytesWritten": @(bytesWritten),
+            @"bytesTotal": @(bytesTotal),
+            @"endpointUrl": endpointUrl
+        }];
+    };
+
+    upload.resultBlock = ^(NSURL *fileUrl) {
+        [self.channel invokeMethod:@"resultBlock" arguments:@{
+            @"resultUrl": fileUrl.absoluteString,
+            @"endpointUrl": endpointUrl
+        }];
+    };
+
+    upload.failureBlock = ^(NSError * _Nonnull error) {
+        [self.channel invokeMethod:@"failureBlock" arguments:@{
+            @"error": error.localizedDescription,
+            @"endpointUrl": endpointUrl
+        }];
+    };
+}
+
 
 
 @end
